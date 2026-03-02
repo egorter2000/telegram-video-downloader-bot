@@ -48,7 +48,7 @@ def get_video_info(url):
     # Фильтруем форматы: только видео с аудио (или комбинированные) в mp4
     for f in info.get("formats", []):
         if f.get("vcodec") != "none" and f.get("height"):
-            resolution = f"{f['height']}p"
+            resolution = f"{f["height"]}p"
             formats.append({
                 "format_id": f["format_id"],
                 "resolution": resolution,
@@ -105,10 +105,20 @@ def split_video(input_path, duration):
     
     return parts
 
+@dp.message(F.text == '/start')
+async def send_welcome(message: Message):
+    await message.answer(
+        "Привет! Я бот для скачивания видео с YouTube, TikTok, RuTube и VK. \n\n" +
+        "Просто отправь мне ссылку на видео, и я предложу доступные качества. \n\n" +
+        "**Важно:** Если видео очень большое (больше 50 МБ), я автоматически разделю его на несколько частей, чтобы сохранить качество и обойти ограничения Telegram. Не пугайся, это нормально! 😉",
+        parse_mode="Markdown"
+    )
+
 @dp.message(F.text)
 async def handle_link(message: Message):
     url = message.text.strip()
     if not url.startswith("http"):
+        await message.answer("Пришли ссылку 🙂")
         return
 
     msg = await message.answer("🔎 Анализирую ссылку...")
@@ -123,19 +133,20 @@ async def handle_link(message: Message):
 
         buttons = []
         # Сортируем по высоте (разрешению)
-        sorted_formats = sorted(formats, key=lambda x: int(x['resolution'][:-1]) if x['resolution'][:-1].isdigit() else 0, reverse=True)
+        sorted_formats = sorted(formats, key=lambda x: int(x["resolution"][:-1]) if x["resolution"][:-1].isdigit() else 0, reverse=True)
         
         for f in sorted_formats:
-            size_str = f" (~{round(f['filesize']/1024/1024)}MB)" if f['filesize'] else ""
+            size_str = f" (~{round(f["filesize"]/1024/1024)}MB)" if f["filesize"] else ""
             buttons.append([InlineKeyboardButton(
-                text=f"{f['resolution']}{size_str}",
-                callback_data=f"dl|{key}|{f['format_id']}"
+                text=f"{f["resolution"]}{size_str}",
+                callback_data=f"dl|{key}|{f["format_id"]}"
             )])
         
         buttons.append([InlineKeyboardButton(text="🎵 Только Аудио (MP3)", callback_data=f"audio|{key}")])
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await msg.edit_text(f"🎬 **{title}**\n\nВыберите качество для скачивания:", reply_markup=keyboard, parse_mode="Markdown")
+        await msg.edit_text(f"🎬 **{title}**\n\nВыберите качество для скачивания:\n\n" +
+                            "_Если видео большое, оно будет отправлено частями для сохранения качества._", reply_markup=keyboard, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error info: {e}")
@@ -154,7 +165,7 @@ async def process_download(callback: CallbackQuery):
         return
 
     url = link_data["url"]
-    title = "".join([c for c in link_data["title"] if c.isalnum() or c in (' ', '.', '_')]).strip()
+    title = "".join([c for c in link_data["title"] if c.isalnum() or c in (" ", ".", "_")]).strip()
     
     status_msg = await callback.message.answer("⏳ Начинаю загрузку...")
     
@@ -171,20 +182,20 @@ async def process_download(callback: CallbackQuery):
 
             size = os.path.getsize(output_file)
             if size > MAX_FILE_SIZE:
-                await status_msg.edit_text("📦 Файл большой, разбиваю на части...")
+                await status_msg.edit_text("📦 Видео большое, разделяю на части для сохранения качества...")
                 duration = get_duration(output_file)
                 parts = split_video(output_file, duration)
                 
                 for i, part in enumerate(parts):
                     await callback.message.answer_video(
                         FSInputFile(part), 
-                        caption=f"Часть {i+1} из {len(parts)}: {link_data['title']}"
+                        caption=f"Часть {i+1} из {len(parts)}: {link_data["title"]}"
                     )
                     os.remove(part)
                 os.remove(output_file)
             else:
                 await status_msg.edit_text("🚀 Отправляю видео...")
-                await callback.message.answer_video(FSInputFile(output_file), caption=link_data['title'])
+                await callback.message.answer_video(FSInputFile(output_file), caption=link_data["title"])
                 os.remove(output_file)
         
         elif action == "audio":
@@ -206,7 +217,7 @@ async def process_download(callback: CallbackQuery):
             real_path = output_file if os.path.exists(output_file) else output_file + ".mp3"
             
             await status_msg.edit_text("🚀 Отправляю аудио...")
-            await callback.message.answer_audio(FSInputFile(real_path), caption=link_data['title'])
+            await callback.message.answer_audio(FSInputFile(real_path), caption=link_data["title"])
             if os.path.exists(real_path): os.remove(real_path)
 
         await status_msg.delete()
